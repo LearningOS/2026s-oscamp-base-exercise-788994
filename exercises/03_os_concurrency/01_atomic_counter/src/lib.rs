@@ -26,20 +26,20 @@ impl AtomicCounter {
     /// Hint: use `fetch_add` with `Ordering::Relaxed`
     pub fn increment(&self) -> u64 {
         // TODO
-        todo!()
-    }
+        self.value.fetch_add(1, Ordering::Relaxed)
+        }
 
     /// Atomically decrements by 1, returns the value **before** decrement.
     pub fn decrement(&self) -> u64 {
         // TODO
-        todo!()
-    }
+        self.value.fetch_sub(1, Ordering::Relaxed)
+        }
 
     /// Gets the current value.
     pub fn get(&self) -> u64 {
         // TODO
-        todo!()
-    }
+        self.value.load(Ordering::Relaxed)
+        }
 
     /// Atomic CAS (Compare-And-Swap) operation.
     /// If current value equals `expected`, set to `new_val` and return Ok(expected).
@@ -48,7 +48,15 @@ impl AtomicCounter {
     /// Hint: use `compare_exchange` with success ordering `Ordering::AcqRel` and failure ordering `Ordering::Acquire`
     pub fn compare_and_swap(&self, expected: u64, new_val: u64) -> Result<u64, u64> {
         // TODO
-        todo!()
+         match self.value.compare_exchange(
+            expected,
+            new_val,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(val) => Ok(val),
+            Err(val) => Err(val),
+        }
     }
 
     /// Multiply the value atomically using a CAS loop.
@@ -62,7 +70,19 @@ impl AtomicCounter {
         //     let new = current * multiplier;
         //     match self.compare_and_swap(current, new) { ... }
         // }
-        todo!()
+         loop {
+            // 1. 读取当前值
+            let current = self.value.load(Ordering::Relaxed);
+            // 2. 计算新值
+            let new_val = current * multiplier;
+            // 3. 尝试CAS更新
+            match self.compare_and_swap(current, new_val) {
+                // CAS成功：返回原始值
+                Ok(_) => return current,
+                // CAS失败：重试循环（当前值已被其他线程修改）
+                Err(_) => continue,
+            }
+        }
     }
 }
 

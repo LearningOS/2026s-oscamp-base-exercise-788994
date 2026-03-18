@@ -74,7 +74,46 @@ unsafe impl GlobalAlloc for BumpAllocator {
         // 5. Atomically update next to end using compare_exchange
         //    (if CAS fails, another thread raced — retry in a loop)
         // 6. Return the aligned address as a pointer
-        todo!()
+        fn align_up(addr: usize, align: usize) -> usize {
+            (addr + align - 1) & !(align - 1)
+        }
+
+        loop {
+            // 1. 加载当前 next 指针（SeqCst 保证多线程内存可见性）
+            let current_next = self.next.load(Ordering::SeqCst);
+            
+            // 2. 对齐 next 到请求的对齐要求
+            let aligned_next = align_up(current_next, layout.align());
+            
+            // 3. 计算分配后的结束地址
+            let alloc_end = aligned_next + layout.size();
+            
+            // 4. 检查是否超出堆内存范围（OOM）
+            if alloc_end > self.heap_end {
+                return null_mut();
+            }
+
+            // 5. CAS 原子更新 next（处理多线程竞争）
+            // - 期望：current_next（当前值）
+            // - 新值：alloc_end（分配后的下一个地址）
+            // - 成功：退出循环；失败：重试（其他线程修改了 next）
+            match self.next.compare_exchange(
+                current_next,
+                alloc_end,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => {
+                    // 6. 分配成功，返回对齐后的地址
+                    return aligned_next as *mut u8;
+                }
+                Err(_) => {
+                    // CAS 失败，重新进入循环重试
+                    continue;
+                }
+            }
+        }
+        
     }
 
     unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {

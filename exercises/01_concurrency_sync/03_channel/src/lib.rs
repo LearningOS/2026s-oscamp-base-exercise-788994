@@ -18,7 +18,30 @@ pub fn simple_send_recv(items: Vec<String>) -> Vec<String> {
     // TODO: Spawn thread to send each element in items
     // TODO: In main thread, receive all messages and collect into Vec
     // Hint: When all Senders are dropped, recv() returns Err
-    todo!()
+  
+    // 1. 创建 mpsc 通道
+    let (tx, rx) = mpsc::channel();
+
+    // 2. 生成生产者线程，发送所有 items 中的元素
+    let handle = thread::spawn(move || {
+        for item in items {
+            // 发送消息（unwrap 处理发送失败的情况，比如接收端已关闭）
+            tx.send(item).unwrap();
+        }
+        // 线程结束后，tx 会被自动 drop，通道的发送端减少一个引用
+    });
+
+    // 3. 主线程接收所有消息
+    let mut received = Vec::new();
+    // 循环接收，直到所有 Sender 被销毁（recv 返回 Err）
+    while let Ok(msg) = rx.recv() {
+        received.push(msg);
+    }
+
+    // 等待生产者线程完成（可选，但更严谨）
+    handle.join().unwrap();
+
+    received
 }
 
 /// Create `n_producers` producer threads, each sending a message in format `"msg from {id}"`.
@@ -30,7 +53,37 @@ pub fn multi_producer(n_producers: usize) -> Vec<String> {
     // TODO: Clone a sender for each producer
     // TODO: Remember to drop the original sender, otherwise receiver won't finish
     // TODO: Collect all messages and sort
-    todo!()
+    let (tx, rx) = mpsc::channel();
+    let mut handles = Vec::with_capacity(n_producers);
+
+    // 2. 为每个生产者克隆一个 Sender
+    for id in 0..n_producers {
+        let tx_clone = tx.clone(); // 克隆发送端
+        let handle = thread::spawn(move || {
+            // 构造消息并发送
+            let msg = format!("msg from {}", id);
+            tx_clone.send(msg).unwrap();
+        });
+        handles.push(handle);
+    }
+
+    // 3. 销毁原始的 Sender（关键！否则 rx.recv() 会一直阻塞）
+    drop(tx);
+
+    // 4. 接收所有消息
+    let mut received = Vec::new();
+    while let Ok(msg) = rx.recv() {
+        received.push(msg);
+    }
+
+    // 等待所有生产者线程完成
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    // 5. 按字典序排序并返回
+    received.sort();
+    received
 }
 
 #[cfg(test)]
