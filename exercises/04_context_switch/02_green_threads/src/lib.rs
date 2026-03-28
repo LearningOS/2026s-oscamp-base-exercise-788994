@@ -64,7 +64,11 @@ static mut CURRENT_THREAD_ENTRY: Option<extern "C" fn()> = None;
 
 /// Wrapper run as the initial `ra` for each green thread: call the user entry (from `CURRENT_THREAD_ENTRY`), then mark Finished and switch back.
 extern "C" fn thread_wrapper() {
-    let entry = unsafe { core::ptr::read(&raw const CURRENT_THREAD_ENTRY) };
+    //let entry = unsafe { core::ptr::read(&raw const CURRENT_THREAD_ENTRY) };
+
+    let entry = unsafe { core::ptr::read(core::ptr::addr_of!(CURRENT_THREAD_ENTRY)) };
+     
+
     if let Some(f) = entry {
         unsafe { CURRENT_THREAD_ENTRY = None };
         f();
@@ -78,8 +82,8 @@ extern "C" fn thread_wrapper() {
 /// Must be `#[unsafe(naked)]` to prevent the compiler from generating a prologue/epilogue.
 //#[unsafe(naked)]
 
-
-#[naked]
+#[unsafe(naked)]
+//#[naked]
 unsafe extern "C" fn switch_context(_old: &mut TaskContext, _new: &TaskContext) {
     naked_asm!(
         "sd sp, 0(a0)",

@@ -149,14 +149,14 @@ pub unsafe fn syscall3(id: usize, arg0: usize, arg1: usize, arg2: usize) -> isiz
     //   - in("x8") id
     //   - inlateout("x0") arg0 => ret
     //   - in("x1") arg1, in("x2") arg2
-      let mut ret: isize;
-    // aarch64 svc #0 内联汇编
+    let mut ret: isize;
+    // riscv64 ecall 内联汇编
     asm!(
-        "svc #0",
-        in("x8") id,
-        inlateout("x0") arg0 => ret,
-        in("x1") arg1,
-        in("x2") arg2,
+        "ecall",
+        in("a7") id,
+        inlateout("a0") arg0 => ret,
+        in("a1") arg1,
+        in("a2") arg2,
         options(nostack, preserves_flags)
     );
     ret
