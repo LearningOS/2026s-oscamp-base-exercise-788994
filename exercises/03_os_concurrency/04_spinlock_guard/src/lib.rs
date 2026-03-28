@@ -41,8 +41,20 @@ impl<T> SpinLock<T> {
     pub fn lock(&self) -> SpinGuard<'_, T> {
         // TODO: Spin-wait to acquire lock
         // TODO: Return SpinGuard { lock: self }
-        todo!()
-    }
+// 1. 自旋获取锁
+while self.locked.compare_exchange(
+    false,
+    true,
+    Ordering::Acquire,
+    Ordering::Relaxed
+).is_err() {
+    core::hint::spin_loop();
+}
+
+// 2. 返回 Guard，它持有了对 self 的引用，确保锁在 Guard 存在期间有效
+SpinGuard { lock: self }
+
+}
 }
 
 // TODO: Implement Deref trait for SpinGuard
@@ -51,24 +63,27 @@ impl<T> Deref for SpinGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        todo!()
-    }
+        unsafe { &*self.lock.data.get() }
+        }
 }
 
 // TODO: Implement DerefMut trait for SpinGuard
 // Return &mut T
 impl<T> DerefMut for SpinGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut T {
-        todo!()
-    }
+        unsafe { &mut *self.lock.data.get() }
+        }
 }
 
 // TODO: Implement Drop trait for SpinGuard
 // Set lock.locked to false (Release ordering)
 impl<T> Drop for SpinGuard<'_, T> {
     fn drop(&mut self) {
-        todo!()
-    }
+         
+            // 自动将锁状态设为 false，使用 Release 确保之前的修改对其他线程可见
+            self.lock.locked.store(false, Ordering::Release);
+        
+        }
 }
 
 #[cfg(test)]

@@ -13,6 +13,9 @@
 //! Each green thread has its own stack and `TaskContext`. Threads call `yield_now()` to yield.
 //! The scheduler round-robins among ready threads. User entry is wrapped by `thread_wrapper`, which
 //! calls the entry then marks the thread `Finished` and switches back.
+#![feature(naked_functions)]
+
+
 
 #![cfg(target_arch = "riscv64")]
 
@@ -73,7 +76,10 @@ extern "C" fn thread_wrapper() {
 /// Zero `a0`/`a1` before `ret` so we don't leak pointers into the new context.
 ///
 /// Must be `#[unsafe(naked)]` to prevent the compiler from generating a prologue/epilogue.
-#[unsafe(naked)]
+//#[unsafe(naked)]
+
+
+#[naked]
 unsafe extern "C" fn switch_context(_old: &mut TaskContext, _new: &TaskContext) {
     naked_asm!(
         "sd sp, 0(a0)",
@@ -137,7 +143,26 @@ impl Scheduler {
     ///    `sp` must be 16-byte aligned (e.g. `(stack_top - 16) & !15` to leave headroom).
     /// 3. Push a `GreenThread` with this context, state `Ready`, and `entry` stored for the wrapper to call.
     pub fn spawn(&mut self, entry: extern "C" fn()) {
-        todo!("alloc stack, init ctx with ra=thread_wrapper and aligned sp, push GreenThread(Ready, entry)")
+        //todo!("alloc stack, init ctx with ra=thread_wrapper and aligned sp, push GreenThread(Ready, entry)")
+
+        let stack = vec![0u8; STACK_SIZE];
+    let stack_top = stack.as_ptr() as usize + STACK_SIZE;
+    
+    // 2. 初始化上下文
+    let mut ctx = TaskContext::default();
+    // 关键：设置返回地址为 wrapper，这样第一次 switch_context 就会跳进包装函数
+    ctx.ra = thread_wrapper as u64;
+    // 关键：栈指针 16 字节对齐
+    ctx.sp = (stack_top as u64) & !15;
+
+    // 3. 注册到线程列表
+    self.threads.push(GreenThread {
+        ctx,
+        state: ThreadState::Ready,
+        _stack: Some(stack),
+        entry: Some(entry), // 给 wrapper 调用的原始函数
+    });
+
     }
 
     /// Run the scheduler until all threads (except the main one) are `Finished`.
@@ -146,12 +171,68 @@ impl Scheduler {
     /// 2. Loop: if all threads in `threads[1..]` are `Finished`, break; otherwise call `schedule_next()` (which may switch away and later return).
     /// 3. Clear `SCHEDULER` when done.
     pub fn run(&mut self) {
-        todo!("set SCHEDULER to self, loop until threads[1..] all Finished, call schedule_next, then clear SCHEDULER")
+        //todo!("set SCHEDULER to self, loop until threads[1..] all Finished, call schedule_next, then clear SCHEDULER")
+
+        unsafe { SCHEDULER = self as *mut Scheduler };
+
+    loop {
+        // 2. 检查是否所有用户线程（索引 1 之后）都已经完成
+        let all_finished = self.threads[1..].iter().all(|t| t.state == ThreadState::Finished);
+        if all_finished {
+            break;
+        }
+
+        // 3. 尝试切换到下一个任务
+        self.schedule_next();
+    }
+
+    // 4. 任务结束，清理全局状态
+    unsafe { SCHEDULER = std::ptr::null_mut() };
+
     }
 
     /// Find the next ready thread (starting from `current + 1` round-robin), mark current as `Ready` (if not `Finished`), mark next as `Running`, set `CURRENT_THREAD_ENTRY` if the next thread has an entry, then switch to it.
     fn schedule_next(&mut self) {
-        todo!("round-robin find next Ready, set current Ready (if not Finished), next Running, CURRENT_THREAD_ENTRY, then switch_context")
+        //todo!("round-robin find next Ready, set current Ready (if not Finished), next Running, CURRENT_THREAD_ENTRY, then switch_context")
+
+        let old_idx = self.current;
+    let n_threads = self.threads.len();
+
+    // 1. 寻找下一个处于 Ready 状态的线程
+    let mut next_idx = (old_idx + 1) % n_threads;
+    while self.threads[next_idx].state != ThreadState::Ready {
+        if next_idx == old_idx {
+            // 如果找了一圈没找到别的 Ready 线程，直接返回继续跑现在的
+            return;
+        }
+        next_idx = (next_idx + 1) % n_threads;
+    }
+
+    // 2. 更新状态
+    // 如果当前线程没结束，就把它改回 Ready 以备下次再战
+    if self.threads[old_idx].state == ThreadState::Running {
+        self.threads[old_idx].state = ThreadState::Ready;
+    }
+    
+    self.threads[next_idx].state = ThreadState::Running;
+    self.current = next_idx;
+
+    // 3. 准备跳转环境
+    // thread_wrapper 需要通过这个静态变量拿到入口地址
+    unsafe { CURRENT_THREAD_ENTRY = self.threads[next_idx].entry.take() };
+
+    // 4. 乾坤大挪移：切换上下文
+   // 使用原始指针获取上下文，避开借用检查器的索引限制
+unsafe {
+    let old_ctx_ptr = &mut self.threads[old_idx].ctx as *mut TaskContext;
+    let new_ctx_ptr = &self.threads[next_idx].ctx as *const TaskContext;
+    
+    // 这里的参数需要根据你的 switch_context 定义来传递
+    // 如果 switch_context 接收的是引用，我们需要解引用指针（但在 unsafe 块中）
+    switch_context(&mut *old_ctx_ptr, &*new_ctx_ptr);
+}
+
+
     }
 }
 

@@ -41,7 +41,20 @@ impl<T> SpinLock<T> {
     /// Caller must ensure `unlock` is called after using the data.
     pub fn lock(&self) -> &mut T {
         // TODO
-        todo!()
+        // 1. 在循环中尝试将 false 改为 true
+    while self.locked.compare_exchange(
+        false, 
+        true, 
+        Ordering::Acquire, // 成功时：获取语义
+        Ordering::Relaxed  // 失败时：无须同步
+    ).is_err() {
+        // 2. 失败则调用 spin_loop 提示 CPU 正在自旋，降低功耗
+        core::hint::spin_loop();
+    }
+
+    // 3. 成功后，通过 UnsafeCell 获取原始指针并转为可变引用
+    // 安全性：compare_exchange 保证了此时只有一个线程持有锁
+    unsafe { &mut *self.data.get() }
     }
 
     /// Release lock.
@@ -49,14 +62,25 @@ impl<T> SpinLock<T> {
     /// TODO: Set locked to false (using Release ordering)
     pub fn unlock(&self) {
         // TODO
-        todo!()
-    }
+        self.locked.store(false, Ordering::Release);
+        }
 
     /// Try to acquire lock without spinning.
     /// Returns Some(&mut T) on success, None if lock is busy.
     pub fn try_lock(&self) -> Option<&mut T> {
         // TODO: Single compare_exchange attempt
-        todo!()
+        if self.locked.compare_exchange(
+            false, 
+            true, 
+            Ordering::Acquire, 
+            Ordering::Relaxed
+        ).is_ok() {
+            // 抢锁成功
+            unsafe { Some(&mut *self.data.get()) }
+        } else {
+            // 锁已被占用
+            None
+        }
     }
 }
 

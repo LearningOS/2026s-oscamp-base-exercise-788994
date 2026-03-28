@@ -12,9 +12,9 @@
 //! ## riscv64 ABI (for this exercise)
 //! - Callee-saved: `sp`, `ra`, `s0`–`s11`. The `ret` instruction is `jalr zero, 0(ra)`.
 //! - First and second arguments: `a0` (old context), `a1` (new context).
-
+#![feature(naked_functions)]
 #![cfg(target_arch = "riscv64")]
-
+use core::arch::naked_asm;
 /// Saved register state for one task (riscv64). Layout must match the offsets used in the asm below: for one task (riscv64). Layout must match the offsets used in the asm below:
 /// `sp` at 0, `ra` at 8, then `s0`–`s11` at 16, 24, … 104.
 #[repr(C)]
@@ -62,7 +62,14 @@ impl TaskContext {
     /// - Set `sp = stack_top` with 16-byte alignment (RISC-V ABI requires 16-byte aligned stack at function entry).
     /// - Leave `s0`–`s11` zero; they will be loaded on switch.
     pub fn init(&mut self, stack_top: usize, entry: usize) {
-        todo!("set ra = entry, sp = stack_top (16-byte aligned)")
+        //todo!("set ra = entry, sp = stack_top (16-byte aligned)")
+
+        // 设置返回地址为函数入口，这样第一次 switch_context 最后的 ret 就会跳转到这里
+        self.ra = entry as u64;
+        // 确保 16 字节对齐（RISC-V 强制要求）
+        self.sp = (stack_top & !15) as u64;
+
+
     }
 }
 
@@ -71,8 +78,53 @@ impl TaskContext {
 /// In asm: store `sp`, `ra`, `s0`–`s11` to `[a0]` (old), load from `[a1]` (new), zero `a0`/`a1` so we do not leak pointers into the new context, then `ret`.
 ///
 /// Must be `#[unsafe(naked)]` to prevent the compiler from generating a prologue/epilogue.
-pub unsafe fn switch_context(old: &mut TaskContext, new: &TaskContext) {
-    todo!("save callee-saved regs to old, load from new, then ret; use #[unsafe(naked)] + naked_asm!, see module doc for riscv64 ABI and layout")
+#[naked]
+pub unsafe extern "C" fn switch_context(old: &mut TaskContext, new: &TaskContext) {
+    
+//pub unsafe fn switch_context(old: &mut TaskContext, new: &TaskContext) {
+   // todo!("save callee-saved regs to old, load from new, then ret; use #[unsafe(naked)] + naked_asm!, see module doc for riscv64 ABI and layout")
+
+   naked_asm!(
+    // 第一阶段：保存当前（旧）任务的寄存器到 a0 指向的结构体中
+    // a0 是第一个参数 (old)，a1 是第二个参数 (new)
+    "sd sp, 0(a0)",
+    "sd ra, 8(a0)",
+    "sd s0, 16(a0)",
+    "sd s1, 24(a0)",
+    "sd s2, 32(a0)",
+    "sd s3, 40(a0)",
+    "sd s4, 48(a0)",
+    "sd s5, 56(a0)",
+    "sd s6, 64(a0)",
+    "sd s7, 72(a0)",
+    "sd s8, 80(a0)",
+    "sd s9, 88(a0)",
+    "sd s10, 96(a0)",
+    "sd s11, 104(a0)",
+
+    // 第二阶段：从 a1 指向的结构体中恢复新任务的寄存器到 CPU
+    "ld sp, 0(a1)",
+    "ld ra, 8(a1)",
+    "ld s0, 16(a1)",
+    "ld s1, 24(a1)",
+    "ld s2, 32(a1)",
+    "ld s3, 40(a1)",
+    "ld s4, 48(a1)",
+    "ld s5, 56(a1)",
+    "ld s6, 64(a1)",
+    "ld s7, 72(a1)",
+    "ld s8, 80(a1)",
+    "ld s9, 88(a1)",
+    "ld s10, 96(a1)",
+    "ld s11, 104(a1)",
+
+    // 第三阶段：清空 a0/a1 以防信息泄露，然后跳转
+    // 对于初次启动的任务，ra 是 entry 地址，sp 是新栈顶
+    // 对于切换回来的任务，ra 是上次调用 switch_context 后的下一行代码地址
+    "li a0, 0",
+    "li a1, 0",
+    "ret"
+   );
 }
 
 const STACK_SIZE: usize = 1024 * 64;
@@ -80,7 +132,14 @@ const STACK_SIZE: usize = 1024 * 64;
 /// Allocate a stack for a coroutine. Returns `(buffer, stack_top)` where `stack_top` is the high address
 /// (stack grows down). The buffer must be kept alive for the lifetime of the context using this stack.
 pub fn alloc_stack() -> (Vec<u8>, usize) {
-    todo!("allocate stack buffer, return (buffer, stack_top) with stack_top 16-byte aligned")
+    //todo!("allocate stack buffer, return (buffer, stack_top) with stack_top 16-byte aligned")
+
+    let buf = vec![0u8; STACK_SIZE];
+        let top = buf.as_ptr() as usize + STACK_SIZE;
+    // 同样确保返回的顶端是对齐的
+    (buf, top & !15)
+
+
 }
 
 #[cfg(test)]
