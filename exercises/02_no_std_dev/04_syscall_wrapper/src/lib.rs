@@ -27,7 +27,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-#![feature(asm)] // 启用 asm 宏特性（Rust nightly 必需）
+// #![feature(asm)] // 启用 asm 宏特性（Rust nightly 必需）
 
 use core::ptr::null_mut;
 use core::arch::asm; // 导入核心库的 asm 宏
@@ -152,11 +152,11 @@ pub unsafe fn syscall3(id: usize, arg0: usize, arg1: usize, arg2: usize) -> isiz
     let mut ret: isize;
     // riscv64 ecall 内联汇编
     asm!(
-        "ecall",
-        in("a7") id,
-        inlateout("a0") arg0 => ret,
-        in("a1") arg1,
-        in("a2") arg2,
+        "svc #0",       
+        in("x8") id,   // <--- aarch64 的 syscall ID 存在 x8 寄存器
+        inlateout("x0") arg0 => ret,
+        in("x1") arg1,
+        in("x2") arg2,
         options(nostack, preserves_flags)
     );
     ret

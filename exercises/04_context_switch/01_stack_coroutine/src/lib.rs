@@ -12,7 +12,7 @@
 //! ## riscv64 ABI (for this exercise)
 //! - Callee-saved: `sp`, `ra`, `s0`–`s11`. The `ret` instruction is `jalr zero, 0(ra)`.
 //! - First and second arguments: `a0` (old context), `a1` (new context).
-#![feature(naked_functions)]
+// #![feature(naked_functions)]
 #![cfg(target_arch = "riscv64")]
 use core::arch::naked_asm;
 /// Saved register state for one task (riscv64). Layout must match the offsets used in the asm below: for one task (riscv64). Layout must match the offsets used in the asm below:
@@ -79,16 +79,14 @@ impl TaskContext {
 ///
 /// Must be `#[unsafe(naked)]` to prevent the compiler from generating a prologue/epilogue.
 
-#[unsafe(naked)]
-//#[naked]
-pub unsafe extern "C" fn switch_context(old: &mut TaskContext, new: &TaskContext) {
-    
-//pub unsafe fn switch_context(old: &mut TaskContext, new: &TaskContext) {
-   // todo!("save callee-saved regs to old, load from new, then ret; use #[unsafe(naked)] + naked_asm!, see module doc for riscv64 ABI and layout")
 
-   naked_asm!(
-    // 第一阶段：保存当前（旧）任务的寄存器到 a0 指向的结构体中
-    // a0 是第一个参数 (old)，a1 是第二个参数 (new)
+use core::arch::global_asm;
+
+// 使用稳定版支持的 global_asm! 宏在文件级别定义全局汇编
+global_asm!(
+    ".globl switch_context",
+    ".align 2",
+    "switch_context:",
     "sd sp, 0(a0)",
     "sd ra, 8(a0)",
     "sd s0, 16(a0)",
@@ -103,8 +101,7 @@ pub unsafe extern "C" fn switch_context(old: &mut TaskContext, new: &TaskContext
     "sd s9, 88(a0)",
     "sd s10, 96(a0)",
     "sd s11, 104(a0)",
-
-    // 第二阶段：从 a1 指向的结构体中恢复新任务的寄存器到 CPU
+    
     "ld sp, 0(a1)",
     "ld ra, 8(a1)",
     "ld s0, 16(a1)",
@@ -119,15 +116,66 @@ pub unsafe extern "C" fn switch_context(old: &mut TaskContext, new: &TaskContext
     "ld s9, 88(a1)",
     "ld s10, 96(a1)",
     "ld s11, 104(a1)",
-
-    // 第三阶段：清空 a0/a1 以防信息泄露，然后跳转
-    // 对于初次启动的任务，ra 是 entry 地址，sp 是新栈顶
-    // 对于切换回来的任务，ra 是上次调用 switch_context 后的下一行代码地址
+    
     "li a0, 0",
     "li a1, 0",
     "ret"
-   );
+);
+
+// 声明外部的 C ABI 函数，Rust 链接器会自动将它和上面的汇编符号绑定
+extern "C" {
+    pub fn switch_context(old: &mut TaskContext, new: &TaskContext);
 }
+
+// #[unsafe(naked)]
+// //#[naked]
+// pub unsafe extern "C" fn switch_context(old: &mut TaskContext, new: &TaskContext) {
+    
+// //pub unsafe fn switch_context(old: &mut TaskContext, new: &TaskContext) {
+//    // todo!("save callee-saved regs to old, load from new, then ret; use #[unsafe(naked)] + naked_asm!, see module doc for riscv64 ABI and layout")
+
+//    naked_asm!(
+//     // 第一阶段：保存当前（旧）任务的寄存器到 a0 指向的结构体中
+//     // a0 是第一个参数 (old)，a1 是第二个参数 (new)
+//     "sd sp, 0(a0)",
+//     "sd ra, 8(a0)",
+//     "sd s0, 16(a0)",
+//     "sd s1, 24(a0)",
+//     "sd s2, 32(a0)",
+//     "sd s3, 40(a0)",
+//     "sd s4, 48(a0)",
+//     "sd s5, 56(a0)",
+//     "sd s6, 64(a0)",
+//     "sd s7, 72(a0)",
+//     "sd s8, 80(a0)",
+//     "sd s9, 88(a0)",
+//     "sd s10, 96(a0)",
+//     "sd s11, 104(a0)",
+
+//     // 第二阶段：从 a1 指向的结构体中恢复新任务的寄存器到 CPU
+//     "ld sp, 0(a1)",
+//     "ld ra, 8(a1)",
+//     "ld s0, 16(a1)",
+//     "ld s1, 24(a1)",
+//     "ld s2, 32(a1)",
+//     "ld s3, 40(a1)",
+//     "ld s4, 48(a1)",
+//     "ld s5, 56(a1)",
+//     "ld s6, 64(a1)",
+//     "ld s7, 72(a1)",
+//     "ld s8, 80(a1)",
+//     "ld s9, 88(a1)",
+//     "ld s10, 96(a1)",
+//     "ld s11, 104(a1)",
+
+//     // 第三阶段：清空 a0/a1 以防信息泄露，然后跳转
+//     // 对于初次启动的任务，ra 是 entry 地址，sp 是新栈顶
+//     // 对于切换回来的任务，ra 是上次调用 switch_context 后的下一行代码地址
+//     "li a0, 0",
+//     "li a1, 0",
+//     "ret"
+//    );
+// }
 
 const STACK_SIZE: usize = 1024 * 64;
 
